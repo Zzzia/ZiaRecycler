@@ -2,6 +2,8 @@ package com.example.zia.ziarecycler;
 
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.support.v7.widget.GridLayoutManager;
+import android.support.v7.widget.helper.ItemTouchHelper;
 import android.widget.TextView;
 
 import com.example.zia.ziarecycler.util.RecyclerManager;
@@ -33,8 +35,12 @@ public class MainActivity extends AppCompatActivity {
                 textView.setText((String) o);
             }
         });
-        manager.setData(list);//这个方法可以放在后面调用，或者在新线程中调用
-        manager.Build();
+        manager.setLayoutManager(new GridLayoutManager(this,1));//默认为LinearLayoutManager
+        //附加特效方法中所有0值为设置默认值
+        manager.setItemViewSwipeAndStop(0,0);//向左滑动并露出额外的view
+        manager.setLongPressDragEnabled(0);//长按拖动
+        manager.Build();//设置完毕，最后调用该方法
+        manager.setData(list);//这个方法可以在任何时间调用
     }
 
     private void initData(){

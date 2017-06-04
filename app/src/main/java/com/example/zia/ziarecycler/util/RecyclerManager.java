@@ -2,14 +2,17 @@ package com.example.zia.ziarecycler.util;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Canvas;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.support.v7.widget.helper.ItemTouchHelper;
 import android.util.SparseArray;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -17,27 +20,28 @@ import java.util.List;
  */
 
 public class RecyclerManager {
+    private static final String TAG = "RecyclerManagerTest";
     //回调方法，暴露出去在activity里绑定数据
     public interface OnBindHolder {
         void bind(ViewHolder holder, Object o, int position);
     }
+    //侧滑接口
+    interface ItemTouchHelperAdapter{
+        void onItemMove(int fromPosition,int toPosition);
+        void onItemDismiss(int position);
+    }
     private Context context;
     private RecyclerView recyclerView;
     private CommonAdapter adapter;
+    private ItemTouchHelperCallBack itemTouchHelperCallBack;
+    private RecyclerView.LayoutManager layoutManager = null;
 
 
     public RecyclerManager(Context context, int RecyclerId, int itemId, OnBindHolder call){
         this.context = context;
         recyclerView = (RecyclerView)((Activity)context).findViewById(RecyclerId);
         adapter = new CommonAdapter(context,itemId,call);
-    }
-
-    /**
-     * 刷新或者初始化数据
-     * @param list 数据集合
-     */
-    public void setData(List list){
-        adapter.setDataList(list);
+        itemTouchHelperCallBack = new ItemTouchHelperCallBack(adapter);
     }
 
     /**
@@ -45,7 +49,68 @@ public class RecyclerManager {
      */
     public void Build(){
         recyclerView.setAdapter(adapter);
-        recyclerView.setLayoutManager(new LinearLayoutManager(context));
+        if(layoutManager != null) {
+            recyclerView.setLayoutManager(layoutManager);
+        }else{
+            recyclerView.setLayoutManager(new LinearLayoutManager(context));
+        }
+        //设置拖动效果
+        ItemTouchHelper helper = new ItemTouchHelper(itemTouchHelperCallBack);
+        helper.attachToRecyclerView(recyclerView);
+    }
+
+    public void setLayoutManager(RecyclerView.LayoutManager layoutManager){
+        this.layoutManager = layoutManager;
+    }
+
+    /**
+     * 长按拖动设置，0为默认，可上可下
+     * @param dragFlags 上下拖动方向设置   ItemTouchHelper.UP | ItemTouchHelper.DOWN
+     */
+    public void setLongPressDragEnabled(int dragFlags){
+        itemTouchHelperCallBack.setLongPressDragEnabled(true);
+        if(dragFlags != 0){
+            itemTouchHelperCallBack.setDragFlags(dragFlags);
+        }
+    }
+
+    /**
+     * 左右滑动一小段暴露额外view，0为默认，默认只能向左，宽度为itemView的一半
+     * @param swipeFlags 左右滑动方向设置，默认只能左滑 ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT
+     * @param maxWidth 滑动的最大距离
+     */
+    public void setItemViewSwipeAndStop(int swipeFlags,int maxWidth){
+        itemTouchHelperCallBack.setItemViewSwipeEnabled(true);
+        if(swipeFlags != 0){
+            itemTouchHelperCallBack.setSwipeFlags(swipeFlags);
+        }
+        if(maxWidth != 0){
+            itemTouchHelperCallBack.setMaxWidth(maxWidth);
+        }
+    }
+
+    /**
+     * 设置快速滑动使item消失
+     * @param swipeFlags ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT
+     */
+    public void setSwipeDismiss(int swipeFlags){
+        if(swipeFlags != 0){
+            itemTouchHelperCallBack.setSwipeFlags(swipeFlags);
+        }
+        else {
+        itemTouchHelperCallBack.setSwipeFlags(ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT);
+        }
+        itemTouchHelperCallBack.setItemViewSwipeEnabled(true);
+        itemTouchHelperCallBack.setIsSwipeDismiss(true);
+    }
+
+
+    /**
+     * 刷新或者初始化数据
+     * @param list 数据集合
+     */
+    public void setData(List list){
+        adapter.setDataList(list);
     }
 
     public RecyclerView getRecycler(){
@@ -62,7 +127,7 @@ public class RecyclerManager {
      * 通用适配器
      * @param <T>
      */
-    class CommonAdapter<T> extends RecyclerView.Adapter<ViewHolder>{
+    class CommonAdapter<T> extends RecyclerView.Adapter<ViewHolder> implements ItemTouchHelperAdapter{
 
         private Context context;
         private int layoutId;
@@ -95,6 +160,18 @@ public class RecyclerManager {
         @Override
         public int getItemCount() {
             return dataList.size();
+        }
+
+        @Override
+        public void onItemMove(int fromPosition, int toPosition) {
+            Collections.swap(dataList,fromPosition,toPosition);
+            notifyItemMoved(fromPosition,toPosition);
+        }
+
+        @Override
+        public void onItemDismiss(int position) {
+            dataList.remove(position);
+            notifyItemRemoved(position);
         }
     }
 
@@ -134,6 +211,98 @@ public class RecyclerManager {
         {
             return mConvertView;
         }
+    }
+
+
+    class ItemTouchHelperCallBack extends android.support.v7.widget.helper.ItemTouchHelper.Callback {
+
+        private ItemTouchHelperAdapter adapter;//回调控制接口
+        private int dragFlags = ItemTouchHelper.UP | ItemTouchHelper.DOWN;//上下拖动，默认可以上下活动
+        private int swipeFlags = ItemTouchHelper.LEFT;//左右滑动，默认只能向左
+        private boolean isLongPressDragEnabled = false;//上下拖动开关，默认不能上下滑动
+        private boolean isItemViewSwipeEnabled = false;//左右滑动开关，默认不能左右滑动
+        private int maxWidth = 0;//itemView左右滑动距离，默认item的一半
+        private boolean isSwipeDismiss = false;//快速滑动消失开关，默认不能
+
+        ItemTouchHelperCallBack(ItemTouchHelperAdapter helper){
+            this.adapter = helper;
+        }
+
+        void setDragFlags(int i){
+            dragFlags = i;
+        }
+        void setSwipeFlags(int i){
+            swipeFlags = i;
+        }
+        void setLongPressDragEnabled(boolean isLongPressDragEnabled){
+            this.isLongPressDragEnabled = isLongPressDragEnabled;
+        }
+        void setItemViewSwipeEnabled(boolean isItemViewSwipeEnabled){
+            this.isItemViewSwipeEnabled = isItemViewSwipeEnabled;
+        }
+        void setMaxWidth(int maxWidth){
+            this.maxWidth = maxWidth;
+        }
+        void setIsSwipeDismiss(boolean isSwipeDismiss){
+            this.isSwipeDismiss = isSwipeDismiss;
+        }
+
+        @Override
+        public int getMovementFlags(RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder) {
+            return makeMovementFlags(dragFlags,swipeFlags);
+        }
+
+        @Override
+        public boolean onMove(RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder, RecyclerView.ViewHolder viewHolder1) {
+            adapter.onItemMove(viewHolder.getAdapterPosition(),viewHolder1.getAdapterPosition());
+            return true;
+        }
+
+        @Override
+        public void onSwiped(RecyclerView.ViewHolder viewHolder, int i) {
+            if(isSwipeDismiss)
+            adapter.onItemDismiss(viewHolder.getAdapterPosition());
+        }
+
+        @Override
+        public void clearView(RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder) {
+            super.clearView(recyclerView, viewHolder);
+            viewHolder.itemView.setScrollX(0);
+        }
+
+        @Override
+        public void onChildDraw(Canvas c, RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder, float dX, float dY, int actionState, boolean isCurrentlyActive) {
+            if(actionState == ItemTouchHelper.ACTION_STATE_SWIPE && dX <= 0){
+                if(maxWidth == 0) {
+                    if (-dX <= viewHolder.itemView.getWidth() / 2) {
+                        viewHolder.itemView.scrollTo(-(int) dX, 0);
+                    } else {
+                        viewHolder.itemView.setScrollX(viewHolder.itemView.getWidth() / 2);
+                    }
+                }
+                else{
+                    if (-dX <= maxWidth) {
+                        viewHolder.itemView.scrollTo(-(int) dX, 0);
+                    } else {
+                        viewHolder.itemView.setScrollX(maxWidth);
+                    }
+                }
+            }
+            else if(actionState == ItemTouchHelper.ACTION_STATE_DRAG){
+                super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive);
+            }
+        }
+
+        @Override
+        public boolean isLongPressDragEnabled() {
+            return isLongPressDragEnabled;
+        }
+
+        @Override
+        public boolean isItemViewSwipeEnabled() {
+            return isItemViewSwipeEnabled;
+        }
+
     }
 }
 
