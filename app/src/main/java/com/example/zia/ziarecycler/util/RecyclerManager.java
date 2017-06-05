@@ -3,6 +3,7 @@ package com.example.zia.ziarecycler.util;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.support.v4.util.SparseArrayCompat;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.helper.ItemTouchHelper;
@@ -16,11 +17,13 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Created by zia on 2017/6/4.
+ * Created by zia .
  */
 
 public class RecyclerManager {
+
     private static final String TAG = "RecyclerManagerTest";
+
     //回调方法，暴露出去在activity里绑定数据
     public interface OnBindHolder {
         void bind(ViewHolder holder, Object o, int position);
@@ -30,25 +33,36 @@ public class RecyclerManager {
         void onItemMove(int fromPosition,int toPosition);
         void onItemDismiss(int position);
     }
+
     private Context context;
     private RecyclerView recyclerView;
     private CommonAdapter adapter;
     private ItemTouchHelperCallBack itemTouchHelperCallBack;
     private RecyclerView.LayoutManager layoutManager = null;
+    private Wrapper wrapper = null;
 
 
+    /**
+     * 构造方法
+     * @param context context
+     * @param RecyclerId resourceId
+     * @param itemId resourceId
+     * @param call 回调接口
+     */
     public RecyclerManager(Context context, int RecyclerId, int itemId, OnBindHolder call){
         this.context = context;
         recyclerView = (RecyclerView)((Activity)context).findViewById(RecyclerId);
         adapter = new CommonAdapter(context,itemId,call);
-        itemTouchHelperCallBack = new ItemTouchHelperCallBack(adapter);
+        //itemTouchHelperCallBack = new ItemTouchHelperCallBack(adapter);
+        wrapper = new Wrapper(adapter);
+        itemTouchHelperCallBack = new ItemTouchHelperCallBack(wrapper);
     }
 
     /**
      * 最后调用的方法，依据之前的设置构建recyclerView
      */
     public void Build(){
-        recyclerView.setAdapter(adapter);
+        recyclerView.setAdapter(wrapper);
         if(layoutManager != null) {
             recyclerView.setLayoutManager(layoutManager);
         }else{
@@ -59,6 +73,27 @@ public class RecyclerManager {
         helper.attachToRecyclerView(recyclerView);
     }
 
+
+    /**
+     * 添加headerView
+     * @param view view
+     */
+    public void addHeaderView(View view){
+        wrapper.addHeaderView(view);
+    }
+
+    /**
+     * 添加footerView
+     * @param view view
+     */
+    public void addFootView(View view){
+        wrapper.addFootView(view);
+    }
+
+    /**
+     * 设置recycler布局方式
+     * @param layoutManager layoutManager
+     */
     public void setLayoutManager(RecyclerView.LayoutManager layoutManager){
         this.layoutManager = layoutManager;
     }
@@ -113,10 +148,19 @@ public class RecyclerManager {
         adapter.setDataList(list);
     }
 
+    /**
+     * 获取recycler
+     * @return recycler
+     */
     public RecyclerView getRecycler(){
         return recyclerView;
     }
 
+
+    /**
+     * 获取adapter
+     * @return adapter
+     */
     public CommonAdapter getAdapter(){
         return adapter;
     }
@@ -214,6 +258,106 @@ public class RecyclerManager {
     }
 
 
+    /**
+     * 装饰，header,footer等
+     * @param <T>
+     */
+    class Wrapper<T> extends RecyclerView.Adapter<ViewHolder> implements ItemTouchHelperAdapter{
+
+        private static final int BASE_HEADER = 10000;
+        private static final int BASE_FOOTER = 20000;
+
+        private SparseArrayCompat<View> mHeaderViews;
+        private SparseArrayCompat<View> mFootViews;
+        private CommonAdapter innerAdapter;
+
+        Wrapper(CommonAdapter innerAdapter){
+            this.innerAdapter = innerAdapter;
+            mFootViews = new SparseArrayCompat<>();
+            mHeaderViews = new SparseArrayCompat<>();
+        }
+
+        void addHeaderView(View view){
+            mHeaderViews.put(mHeaderViews.size()+BASE_HEADER,view);
+        }
+
+        void addFootView(View view){
+            mFootViews.put(mFootViews.size()+BASE_FOOTER,view);
+        }
+
+        int getHeaderCount(){
+            return mHeaderViews.size();
+        }
+
+        int getFootCount(){
+            return mFootViews.size();
+        }
+
+        private boolean isHeaderViewPos(int position)
+        {
+            return position < getHeaderCount();
+        }
+
+        private boolean isFooterViewPos(int position)
+        {
+            return position >= getHeaderCount() + getRealItemCount();
+        }
+
+        private int getRealItemCount()
+        {
+            return innerAdapter.getItemCount();
+        }
+
+
+        @Override
+        public int getItemViewType(int position) {
+            if(isHeaderViewPos(position)) return mHeaderViews.keyAt(position);
+            else if(isFooterViewPos(position)) return mFootViews.keyAt(position-getHeaderCount()-getRealItemCount());
+            return innerAdapter.getItemViewType(position-getHeaderCount());
+        }
+
+        @Override
+        public ViewHolder onCreateViewHolder(ViewGroup viewGroup, int type) {
+            if(mHeaderViews.get(type) != null){
+                return new ViewHolder(context,mHeaderViews.get(type));
+            }
+            else if(mFootViews.get(type) != null) return new ViewHolder(context,mFootViews.get(type));
+            return innerAdapter.onCreateViewHolder(viewGroup,type);
+        }
+
+        @Override
+        public void onBindViewHolder(ViewHolder viewHolder, int position) {
+            if(isHeaderViewPos(position)) return;
+            if(isFooterViewPos(position)) return;
+            innerAdapter.onBindViewHolder(viewHolder,position-getHeaderCount());
+        }
+
+        @Override
+        public int getItemCount() {
+            return getHeaderCount()+getFootCount()+getRealItemCount();
+        }
+
+        @Override
+        public void onItemMove(int fromPosition, int toPosition) {
+            //禁止header和footer改变顺序
+            if(isFooterViewPos(fromPosition) || isHeaderViewPos(fromPosition)) return;
+            Collections.swap(innerAdapter.dataList,fromPosition-getHeaderCount(),toPosition-getHeaderCount());
+            notifyItemMoved(fromPosition,toPosition);
+        }
+
+        @Override
+        public void onItemDismiss(int position) {
+            //禁止header和footer改变顺序
+            if(isFooterViewPos(position) || isHeaderViewPos(position)) return;
+            innerAdapter.dataList.remove(position-getHeaderCount());
+            notifyItemRemoved(position);
+        }
+    }
+
+
+    /**
+     * item的手势监听类
+     */
     class ItemTouchHelperCallBack extends android.support.v7.widget.helper.ItemTouchHelper.Callback {
 
         private ItemTouchHelperAdapter adapter;//回调控制接口
