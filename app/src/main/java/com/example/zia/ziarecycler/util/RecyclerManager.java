@@ -4,9 +4,12 @@ import android.app.Activity;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.support.v4.util.SparseArrayCompat;
+import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.support.v7.widget.StaggeredGridLayoutManager;
 import android.support.v7.widget.helper.ItemTouchHelper;
+import android.util.Log;
 import android.util.SparseArray;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -30,8 +33,13 @@ public class RecyclerManager {
     }
     //侧滑接口
     interface ItemTouchHelperAdapter{
-        void onItemMove(int fromPosition,int toPosition);
-        void onItemDismiss(int position);
+        void onItemMove(int fromPosition,int toPosition);//item移动位置
+        void onItemDismiss(int position);//item消失
+    }
+    //点击事件监听
+    public interface OnItemClick{
+        void onClick(int position);
+        void onLongClick(int position);
     }
 
     private Context context;
@@ -53,26 +61,32 @@ public class RecyclerManager {
         this.context = context;
         recyclerView = (RecyclerView)((Activity)context).findViewById(RecyclerId);
         adapter = new CommonAdapter(context,itemId,call);
-        //itemTouchHelperCallBack = new ItemTouchHelperCallBack(adapter);
         wrapper = new Wrapper(adapter);
         itemTouchHelperCallBack = new ItemTouchHelperCallBack(wrapper);
+
     }
 
     /**
      * 最后调用的方法，依据之前的设置构建recyclerView
      */
     public void Build(){
-        recyclerView.setAdapter(wrapper);
         if(layoutManager != null) {
             recyclerView.setLayoutManager(layoutManager);
         }else{
             recyclerView.setLayoutManager(new LinearLayoutManager(context));
         }
+        recyclerView.setAdapter(wrapper);
         //设置拖动效果
         ItemTouchHelper helper = new ItemTouchHelper(itemTouchHelperCallBack);
         helper.attachToRecyclerView(recyclerView);
     }
 
+    /**
+     * 添加item的点击事件监听回调
+     */
+    public void addItemClickListener(OnItemClick clickListener){
+        adapter.addClickListener(clickListener);
+    }
 
     /**
      * 添加headerView
@@ -177,6 +191,7 @@ public class RecyclerManager {
         private int layoutId;
         private List<T> dataList;
         private RecyclerManager.OnBindHolder call;
+        private OnItemClick clickListener = null;
 
         CommonAdapter(Context context, int layoutId,RecyclerManager.OnBindHolder call){
             this.context = context;
@@ -185,20 +200,39 @@ public class RecyclerManager {
             dataList = new ArrayList<>();
         }
 
+        void addClickListener(OnItemClick clickListener){
+            this.clickListener = clickListener;
+        }
+
         void setDataList(List<T> dataList){
             this.dataList = dataList;
             notifyDataSetChanged();
         }
 
         @Override
-        public ViewHolder onCreateViewHolder(ViewGroup viewGroup, int i) {
+        public ViewHolder onCreateViewHolder(ViewGroup viewGroup, int type) {
             View itemView = LayoutInflater.from(context).inflate(layoutId, viewGroup, false);
             return new ViewHolder(context,itemView);
         }
 
         @Override
-        public void onBindViewHolder(ViewHolder viewHolder, int i) {
-            call.bind(viewHolder, dataList.get(i),i);
+        public void onBindViewHolder(ViewHolder viewHolder, final int position) {
+            if(clickListener != null) {
+                viewHolder.itemView.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        clickListener.onClick(position);
+                    }
+                });
+                viewHolder.itemView.setOnLongClickListener(new View.OnLongClickListener() {
+                    @Override
+                    public boolean onLongClick(View v) {
+                        clickListener.onLongClick(position);
+                        return true;
+                    }
+                });
+            }
+            call.bind(viewHolder, dataList.get(position),position);
         }
 
         @Override
@@ -317,6 +351,55 @@ public class RecyclerManager {
         }
 
         @Override
+        public void onAttachedToRecyclerView(RecyclerView recyclerView) {
+            super.onAttachedToRecyclerView(recyclerView);
+            innerAdapter.onAttachedToRecyclerView(recyclerView);
+            final RecyclerView.LayoutManager manager = recyclerView.getLayoutManager();
+            if(manager instanceof GridLayoutManager){
+                final GridLayoutManager gridLayoutManager = (GridLayoutManager) manager;
+                final GridLayoutManager.SpanSizeLookup spanSizeLookup = gridLayoutManager.getSpanSizeLookup();
+                gridLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup()
+                {
+                    @Override
+                    public int getSpanSize(int position)
+                    {
+                        int viewType = getItemViewType(position);
+                        if (mHeaderViews.get(viewType) != null)
+                        {
+                            return ((GridLayoutManager) manager).getSpanCount();
+                        } else if (mFootViews.get(viewType) != null)
+                        {
+                            return ((GridLayoutManager) manager).getSpanCount();
+                        }
+                        if (spanSizeLookup != null){
+                            return spanSizeLookup.getSpanSize(position);
+                        }
+                        return 1;
+                    }
+                });
+                gridLayoutManager.setSpanCount(gridLayoutManager.getSpanCount());
+            }
+        }
+
+        @Override
+        public void onViewAttachedToWindow(ViewHolder holder) {
+            innerAdapter.onViewAttachedToWindow(holder);
+            int position = holder.getLayoutPosition();
+            if (isHeaderViewPos(position) || isFooterViewPos(position))
+            {
+                ViewGroup.LayoutParams lp = holder.itemView.getLayoutParams();
+
+                if (lp != null
+                        && lp instanceof StaggeredGridLayoutManager.LayoutParams)
+                {
+                    StaggeredGridLayoutManager.LayoutParams p =
+                            (StaggeredGridLayoutManager.LayoutParams) lp;
+                    p.setFullSpan(true);
+                }
+            }
+        }
+
+        @Override
         public ViewHolder onCreateViewHolder(ViewGroup viewGroup, int type) {
             if(mHeaderViews.get(type) != null){
                 return new ViewHolder(context,mHeaderViews.get(type));
@@ -340,7 +423,8 @@ public class RecyclerManager {
         @Override
         public void onItemMove(int fromPosition, int toPosition) {
             //禁止header和footer改变顺序
-            if(isFooterViewPos(fromPosition) || isHeaderViewPos(fromPosition)) return;
+            if(isFooterViewPos(fromPosition) || isHeaderViewPos(fromPosition)
+                    || isFooterViewPos(toPosition) || isHeaderViewPos(toPosition)) return;
             Collections.swap(innerAdapter.dataList,fromPosition-getHeaderCount(),toPosition-getHeaderCount());
             notifyItemMoved(fromPosition,toPosition);
         }
@@ -358,7 +442,7 @@ public class RecyclerManager {
     /**
      * item的手势监听类
      */
-    class ItemTouchHelperCallBack extends android.support.v7.widget.helper.ItemTouchHelper.Callback {
+    class ItemTouchHelperCallBack extends android.support.v7.widget.helper.ItemTouchHelper.Callback{
 
         private ItemTouchHelperAdapter adapter;//回调控制接口
         private int dragFlags = ItemTouchHelper.UP | ItemTouchHelper.DOWN;//上下拖动，默认可以上下活动
@@ -416,23 +500,18 @@ public class RecyclerManager {
 
         @Override
         public void onChildDraw(Canvas c, RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder, float dX, float dY, int actionState, boolean isCurrentlyActive) {
-            if(actionState == ItemTouchHelper.ACTION_STATE_SWIPE && dX <= 0){
-                if(maxWidth == 0) {
-                    if (-dX <= viewHolder.itemView.getWidth() / 2) {
-                        viewHolder.itemView.scrollTo(-(int) dX, 0);
-                    } else {
-                        viewHolder.itemView.setScrollX(viewHolder.itemView.getWidth() / 2);
-                    }
+            if (maxWidth == 0) {
+                maxWidth = viewHolder.itemView.getWidth() / 2;
+            }
+            if (actionState == ItemTouchHelper.ACTION_STATE_SWIPE && dX < 0) {
+                if (-dX <= maxWidth) {
+                    viewHolder.itemView.scrollTo(-(int) dX, 0);
                 }
                 else{
-                    if (-dX <= maxWidth) {
-                        viewHolder.itemView.scrollTo(-(int) dX, 0);
-                    } else {
-                        viewHolder.itemView.setScrollX(maxWidth);
-                    }
+                    viewHolder.itemView.setScrollX(maxWidth);
                 }
-            }
-            else if(actionState == ItemTouchHelper.ACTION_STATE_DRAG){
+
+            } else {
                 super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive);
             }
         }
