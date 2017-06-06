@@ -3,7 +3,7 @@
 
 [管理工具直达车](https://github.com/Zzzia/ZiaRecycler/blob/master/app/src/main/java/com/example/zia/ziarecycler/util/RecyclerManager.java)
 
-<img src="https://github.com/Zzzia/Files/blob/master/gifs/ZiaRecycler.gif" />
+<img src="https://github.com/Zzzia/Files/blob/master/gifs/ZiaRecycler.gif" width="360" height="640" /><img src="https://github.com/Zzzia/Files/blob/master/gifs/ZiaRecycler.gif1" width="360" height="640" />
 
 ~~~ java
 private void setRecycler(){
